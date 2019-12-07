@@ -5,9 +5,8 @@ namespace Gloudemans\Shoppingcart;
 use Illuminate\Support\Arr;
 use Illuminate\Contracts\Support\Arrayable;
 use Gloudemans\Shoppingcart\Contracts\Buyable;
-use Illuminate\Contracts\Support\Jsonable;
 
-class CartItem implements Arrayable, Jsonable
+class CartItem implements Arrayable
 {
     /**
      * The rowID of the cart item.
@@ -31,6 +30,13 @@ class CartItem implements Arrayable, Jsonable
     public $qty;
 
     /**
+     * The image for this cart item.
+     *
+     * @var int|float
+     */
+    public $img;
+
+    /**
      * The name of the cart item.
      *
      * @var string
@@ -43,6 +49,12 @@ class CartItem implements Arrayable, Jsonable
      * @var float
      */
     public $price;
+
+    /*
+     *Check the profit on each item.
+    */
+    public $profit;
+    
 
     /**
      * The options for this cart item.
@@ -66,13 +78,6 @@ class CartItem implements Arrayable, Jsonable
     private $taxRate = 0;
 
     /**
-     * Is item saved for later.
-     *
-     * @var boolean
-     */
-    private $isSaved = false;
-
-    /**
      * CartItem constructor.
      *
      * @param int|string $id
@@ -80,7 +85,7 @@ class CartItem implements Arrayable, Jsonable
      * @param float      $price
      * @param array      $options
      */
-    public function __construct($id, $name, $price, array $options = [])
+    public function __construct($id, $name , $img, $price , $profit , array $options = [])
     {
         if(empty($id)) {
             throw new \InvalidArgumentException('Please supply a valid identifier.');
@@ -94,7 +99,9 @@ class CartItem implements Arrayable, Jsonable
 
         $this->id       = $id;
         $this->name     = $name;
+        $this->img     = $img;
         $this->price    = floatval($price);
+        $this->profit    = floatval($profit);
         $this->options  = new CartItemOptions($options);
         $this->rowId = $this->generateRowId($id, $options);
     }
@@ -217,7 +224,9 @@ class CartItem implements Arrayable, Jsonable
         $this->id       = Arr::get($attributes, 'id', $this->id);
         $this->qty      = Arr::get($attributes, 'qty', $this->qty);
         $this->name     = Arr::get($attributes, 'name', $this->name);
+        $this->img      = Arr::get($attributes, 'img', $this->img);
         $this->price    = Arr::get($attributes, 'price', $this->price);
+        $this->profit    = Arr::get($attributes, 'price', $this->profit);
         $this->priceTax = $this->price + $this->tax;
         $this->options  = new CartItemOptions(Arr::get($attributes, 'options', $this->options));
 
@@ -251,19 +260,6 @@ class CartItem implements Arrayable, Jsonable
     }
 
     /**
-     * Set saved state.
-     *
-     * @param bool $bool
-     * @return \Gloudemans\Shoppingcart\CartItem
-     */
-    public function setSaved($bool)
-    {
-        $this->isSaved = $bool;
-
-        return $this;
-    }
-
-    /**
      * Get an attribute from the cart item or get the associated model.
      *
      * @param string $attribute
@@ -275,27 +271,27 @@ class CartItem implements Arrayable, Jsonable
             return $this->{$attribute};
         }
 
-        if ($attribute === 'priceTax') {
-            return number_format(($this->price + $this->tax), 2, '.', '');
+        if($attribute === 'priceTax') {
+            return $this->price + $this->tax;
+        }
+        
+        if($attribute === 'subtotal') {
+            return $this->qty * $this->price;
+        }
+        
+        if($attribute === 'total') {
+            return $this->qty * ($this->priceTax);
         }
 
-        if ($attribute === 'subtotal') {
-            return number_format(($this->qty * $this->price), 2, '.', '');
+        if($attribute === 'tax') {
+            return $this->price * ($this->taxRate / 100);
+        }
+        
+        if($attribute === 'taxTotal') {
+            return $this->tax * $this->qty;
         }
 
-        if ($attribute === 'total') {
-            return number_format(($this->qty * $this->priceTax), 2, '.', '');
-        }
-
-        if ($attribute === 'tax') {
-            return number_format(($this->price * ($this->taxRate / 100)), 2, '.', '');
-        }
-
-        if ($attribute === 'taxTotal') {
-            return number_format(($this->tax * $this->qty), 2, '.', '');
-        }
-
-        if($attribute === 'model' && isset($this->associatedModel)) {
+        if($attribute === 'model') {
             return with(new $this->associatedModel)->find($this->id);
         }
 
@@ -324,7 +320,7 @@ class CartItem implements Arrayable, Jsonable
     {
         $options = Arr::get($attributes, 'options', []);
 
-        return new self($attributes['id'], $attributes['name'], $attributes['price'], $options);
+        return new self($attributes['id'], $attributes['name'], $attributes['img'], $attributes['price'], $attributes['profit'], $options);
     }
 
     /**
@@ -336,9 +332,9 @@ class CartItem implements Arrayable, Jsonable
      * @param array      $options
      * @return \Gloudemans\Shoppingcart\CartItem
      */
-    public static function fromAttributes($id, $name, $price, array $options = [])
+    public static function fromAttributes($id, $name, $img, $price, $profit, array $options = [])
     {
-        return new self($id, $name, $price, $options);
+        return new self($id, $name, $img, $price, $profit, $options);
     }
 
     /**
@@ -366,46 +362,34 @@ class CartItem implements Arrayable, Jsonable
             'rowId'    => $this->rowId,
             'id'       => $this->id,
             'name'     => $this->name,
+            'img'      => $this->img,
             'qty'      => $this->qty,
             'price'    => $this->price,
-            'options'  => $this->options->toArray(),
+            'profit'    => $this->profit,
+            'options'  => $this->options,
             'tax'      => $this->tax,
-            'isSaved'      => $this->isSaved,
             'subtotal' => $this->subtotal
         ];
     }
 
     /**
-     * Convert the object to its JSON representation.
+     * Get the Formated number
      *
-     * @param int $options
+     * @param $value
+     * @param $decimals
+     * @param $decimalPoint
+     * @param $thousandSeperator
      * @return string
      */
-    public function toJson($options = 0)
+    private function numberFormat($value, $decimals, $decimalPoint, $thousandSeperator)
     {
-        return json_encode($this->toArray(), $options);
-    }
-
-    /**
-     * Get the formatted number.
-     *
-     * @param float  $value
-     * @param int    $decimals
-     * @param string $decimalPoint
-     * @param string $thousandSeperator
-     * @return string
-     */
-    private function numberFormat($value, $decimals = null, $decimalPoint = null, $thousandSeperator = null)
-    {
-        if (is_null($decimals)){
+        if(is_null($decimals)){
             $decimals = is_null(config('cart.format.decimals')) ? 2 : config('cart.format.decimals');
         }
-
-        if (is_null($decimalPoint)){
+        if(is_null($decimalPoint)){
             $decimalPoint = is_null(config('cart.format.decimal_point')) ? '.' : config('cart.format.decimal_point');
         }
-
-        if (is_null($thousandSeperator)){
+        if(is_null($thousandSeperator)){
             $thousandSeperator = is_null(config('cart.format.thousand_seperator')) ? ',' : config('cart.format.thousand_seperator');
         }
 

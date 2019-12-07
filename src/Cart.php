@@ -21,11 +21,11 @@ class Cart
      *
      * @var \Illuminate\Session\SessionManager
      */
-    protected $session;
+    private $session;
 
     /**
      * Instance of the event dispatcher.
-     *
+     * 
      * @var \Illuminate\Contracts\Events\Dispatcher
      */
     private $events;
@@ -94,11 +94,7 @@ class Cart
             }, $id);
         }
 
-        if ($id instanceof CartItem) {
-            $cartItem = $id;
-        } else {
-            $cartItem = $this->createCartItem($id, $name, $qty, $price, $options);
-        }
+        $cartItem = $this->createCartItem($id, $name, $qty, $price, $options);
 
         $content = $this->getContent();
 
@@ -107,7 +103,7 @@ class Cart
         }
 
         $content->put($cartItem->rowId, $cartItem);
-
+        
         $this->events->dispatch('cart.added', $cartItem);
 
         $this->session->put($this->instance, $content);
@@ -354,18 +350,14 @@ class Cart
     {
         $content = $this->getContent();
 
-
-        $this->getConnection()
-             ->table($this->getTableName())
-             ->where('identifier', $identifier)
-             ->delete();
-
+        if ($this->storedCartWithIdentifierExists($identifier)) {
+            throw new CartAlreadyStoredException("A cart with identifier {$identifier} was already stored.");
+        }
 
         $this->getConnection()->table($this->getTableName())->insert([
             'identifier' => $identifier,
             'instance' => $this->currentInstance(),
-            'content' => serialize($content),
-            'created_at'=> new \DateTime()
+            'content' => serialize($content)
         ]);
 
         $this->events->dispatch('cart.stored');
@@ -404,23 +396,9 @@ class Cart
 
         $this->instance($currentInstance);
 
+        $this->getConnection()->table($this->getTableName())
+            ->where('identifier', $identifier)->delete();
     }
-
-
-
-    /**
-     * Deletes the stored cart with given identifier
-     *
-     * @param mixed $identifier
-     */
-    protected function deleteStoredCart($identifier) {
-        $this->getConnection()
-             ->table($this->getTableName())
-             ->where('identifier', $identifier)
-             ->delete();
-    }
-
-
 
     /**
      * Magic method to make accessing the total, tax and subtotal properties possible.
@@ -505,7 +483,7 @@ class Cart
      * @param $identifier
      * @return bool
      */
-    protected function storedCartWithIdentifierExists($identifier)
+    private function storedCartWithIdentifierExists($identifier)
     {
         return $this->getConnection()->table($this->getTableName())->where('identifier', $identifier)->exists();
     }
@@ -515,7 +493,7 @@ class Cart
      *
      * @return \Illuminate\Database\Connection
      */
-    protected function getConnection()
+    private function getConnection()
     {
         $connectionName = $this->getConnectionName();
 
@@ -527,7 +505,7 @@ class Cart
      *
      * @return string
      */
-    protected function getTableName()
+    private function getTableName()
     {
         return config('cart.database.table', 'shoppingcart');
     }
